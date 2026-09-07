@@ -1,27 +1,39 @@
 /* =========================================================================
    Robotics Lab Attendance Tracker — shared styles.
 
-   Sized for a wall-mounted tablet read at arm's length: type scales with the
-   viewport, targets are finger-sized, and nothing relies on hover.
+   Visual direction: "powder coat and enamel". The lab is a machine shop, so
+   the surfaces are painted steel rather than paper, the seams are visible,
+   and status is carried in enamel signage colours. Sized for a wall-mounted
+   tablet read at arm's length: type scales with the viewport, targets are
+   finger-sized, and nothing relies on hover.
    ========================================================================= */
 
 :root {
   /* Palette — dark by default. A lab is dim and a bright screen at night is
-     unpleasant; the status colours stay legible across the room either way. */
-  --bg:            #0d1117;
-  --bg-raised:     #161b22;
-  --border:        #30363d;
-  --text:          #f0f6fc;
-  --text-dim:      #9198a1;
+     unpleasant; the status colours stay legible across the room either way.
 
-  --in:            #1a7f37;   /* green — welcome */
-  --in-bright:     #3fb950;
-  --out:          #0d5bbf;    /* blue — goodbye */
-  --out-bright:    #58a6ff;
-  --warn:          #9e6a03;   /* amber — queued offline */
-  --warn-bright:   #d29922;
-  --error:         #a4232f;   /* red — something is wrong */
-  --error-bright:  #f85149;
+     The ground is deliberately NOT near-black. #1d2328 is a warm graphite,
+     the colour of painted shop equipment: it lets the seam and the raised
+     panel sit a readable step apart without either going black, which is
+     what makes the chrome read as machined rather than as a terminal. */
+  --bg:            #1d2328;
+  --bg-sunken:     #171c20;   /* wells: inputs, plot grounds, photo slots */
+  --bg-raised:     #262d33;   /* panels lifted off the ground */
+  --border:        #3a444c;   /* the seam between two painted panels */
+  --text:          #f2efe9;   /* chalk — warm, so it reads as marked, not lit */
+  --text-dim:      #98a3a8;
+
+  /* Enamel signals. Each pair is a filled surface and the brightest legible
+     ink of the same hue, so a status can be a block or a word without
+     inventing a new colour for either. */
+  --in:            #16794e;   /* jade — welcome */
+  --in-bright:     #4ed08a;
+  --out:           #1b5e8c;   /* dockyard blue — goodbye */
+  --out-bright:    #62b6e8;
+  --warn:          #8a5b0a;   /* signal amber — queued offline, needs review */
+  --warn-bright:   #e8a32b;
+  --error:         #9b2c22;   /* oxide red — something is wrong */
+  --error-bright:  #f2705e;
 
   /* Type scale: vmin-based so it fills the screen on any tablet, clamped so it
      stays sane on a phone or a desktop browser during development. */
@@ -32,8 +44,28 @@
   --step-sm:    clamp(1rem, 2.4vmin, 1.5rem);
 
   --tap: 4.5rem;              /* minimum tap target — nothing smaller, anywhere */
-  --radius: 0.75rem;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+  /* Two radii, and the difference means something: touch surfaces a student
+     puts a thumb on are generously rounded, and anything carrying data is cut
+     square-ish like a machined edge. One radius everywhere is what makes an
+     interface look printed from a kit. */
+  --radius: 0.875rem;
+  --radius-data: 0.25rem;
+
+  /* Barlow Condensed narrows the display voice so a name or an hour count can
+     be set large without wrapping; IBM Plex Sans carries running text and
+     every table. The width contrast is the pairing — no second serif. */
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "IBM Plex Sans Condensed", "Avenir Next Condensed",
+                  -apple-system, system-ui, sans-serif;
+
+  /* The one bold move in this interface, and it is information: diagonal
+     caution striping marks a surface that a coach has to come back to.
+     Nothing decorative may use it. */
+  --hazard: repeating-linear-gradient(
+              -45deg,
+              var(--warn-bright) 0 0.5rem,
+              #14181c 0.5rem 1rem);
 }
 
 * { box-sizing: border-box; }
@@ -46,6 +78,12 @@ html, body {
   color: var(--text);
   font-family: var(--font);
   -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.005em;
 }
 
 /* The tablet pages are fixed full-screen surfaces. Nothing scrolls, nothing
@@ -67,42 +105,48 @@ body.fixed-surface {
   gap: 0.5em;
   min-height: var(--tap);
   padding: 0 1.5em;
-  border: 2px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
   color: var(--text);
-  font-family: inherit;
+  font-family: var(--font-display);
   font-size: var(--step-md);
   font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-.btn:active { transform: scale(0.98); }
-.btn:focus-visible { outline: 4px solid var(--out-bright); outline-offset: 3px; }
-.btn[disabled] { opacity: 0.5; cursor: default; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 3px solid var(--warn-bright); outline-offset: 2px; }
+.btn[disabled] { opacity: 0.45; cursor: default; }
 
-.btn--primary { background: var(--in); border-color: var(--in-bright); }
+/* The primary action is the only filled control on a screen, and it is filled
+   with the same jade a check-in confirmation uses, so the button and its
+   outcome are visibly the same event. */
+.btn--primary { background: var(--in); border-color: var(--in-bright); color: #f2fbf6; }
 .btn--ghost   { background: transparent; border-color: var(--border); color: var(--text-dim); }
 .btn--big     { min-height: calc(var(--tap) * 1.3); font-size: var(--step-lg); }
 .btn--block   { width: 100%; }
 
 /* Fields ----------------------------------------------------------------- */
 
+/* A field is a well cut into the panel, not another raised card: it is darker
+   than its surroundings and its border is the cut edge. */
 .field {
   width: 100%;
   min-height: calc(var(--tap) * 1.2);
   padding: 0 0.75em;
-  border: 3px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-data);
+  background: var(--bg-sunken);
   color: var(--text);
   font-family: inherit;
   font-size: var(--step-lg);
 }
 
-.field:focus { outline: none; border-color: var(--out-bright); }
+.field:focus { outline: none; border-color: var(--out-bright); box-shadow: inset 0 0 0 1px var(--out-bright); }
 .field::placeholder { color: var(--text-dim); }
 
 /* Utility ---------------------------------------------------------------- */

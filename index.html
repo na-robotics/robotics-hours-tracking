@@ -8,11 +8,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#1d2328">
 <title>Lab Scanner</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Display + text faces. Cross-origin, so the service worker never caches
+     them; on a dead network the fallback stacks in styles.css take over and
+     the layout holds. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/styles.css">
 <style>
   /* ---- camera stage ---- */
@@ -34,33 +40,41 @@
      the preview's short edge (its `roi` option), and because the preview is
      `object-fit: cover` and fills the viewport, that region is 60vmin on
      screen — centred, with no vertical nudge. If `roi` ever changes, change
-     this to match or the box starts lying about where to hold the card. */
+     this to match or the box starts lying about where to hold the card.
+
+     Drawn as four machined corner brackets rather than a full frame: the
+     brackets say "put the card inside this" without a continuous edge for the
+     decoder's own square to fight with. */
   .reticle {
     position: fixed; top: 50%; left: 50%;
     width: 60vmin; height: 60vmin;
     transform: translate(-50%, -50%);
-    border-radius: 2rem;
-    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+    border-radius: 1rem;
+    box-shadow: 0 0 0 100vmax rgba(9, 12, 14, 0.62);
     pointer-events: none;
   }
   .reticle::before, .reticle::after,
   .reticle span::before, .reticle span::after {
     content: ""; position: absolute;
-    width: 4rem; height: 4rem;
-    border: 0.5rem solid var(--text);
-    opacity: 0.9;
+    width: 3.5rem; height: 3.5rem;
+    border: 0.4rem solid var(--text);
+    opacity: 0.92;
   }
-  .reticle::before  { top: 0; left: 0;  border-right: 0; border-bottom: 0; border-radius: 2rem 0 0 0; }
-  .reticle::after   { top: 0; right: 0; border-left: 0;  border-bottom: 0; border-radius: 0 2rem 0 0; }
-  .reticle span::before { bottom: 0; left: 0;  border-right: 0; border-top: 0; border-radius: 0 0 0 2rem; }
-  .reticle span::after  { bottom: 0; right: 0; border-left: 0;  border-top: 0; border-radius: 0 0 2rem 0; }
+  .reticle::before  { top: 0; left: 0;  border-right: 0; border-bottom: 0; border-radius: 1rem 0 0 0; }
+  .reticle::after   { top: 0; right: 0; border-left: 0;  border-bottom: 0; border-radius: 0 1rem 0 0; }
+  .reticle span::before { bottom: 0; left: 0;  border-right: 0; border-top: 0; border-radius: 0 0 0 1rem; }
+  .reticle span::after  { bottom: 0; right: 0; border-left: 0;  border-top: 0; border-radius: 0 0 1rem 0; }
 
+  /* The one instruction on the screen, so it gets the display face at full
+     size and sits directly under the box it is talking about. */
   .prompt {
     position: fixed; left: 0; right: 0;
     bottom: calc(env(safe-area-inset-bottom, 0px) + 6vmin);
     margin: 0; text-align: center;
-    font-size: var(--step-lg); font-weight: 700;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+    font-family: var(--font-display);
+    font-size: var(--step-lg); font-weight: 600;
+    letter-spacing: 0.01em;
+    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.95);
   }
 
   /* ---- status bar ---- */
@@ -69,18 +83,26 @@
     top: env(safe-area-inset-top, 0px);
     display: flex; align-items: center; gap: 1rem;
     padding: 1.25rem 1.75rem;
-    font-size: var(--step-sm); font-weight: 600;
+    font-size: var(--step-sm); font-weight: 500;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
   }
   .statusbar__spacer { flex: 1; }
-  #clock { font-variant-numeric: tabular-nums; }
+  #clock {
+    font-family: var(--font-display); font-weight: 600;
+    font-size: var(--step-md); font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em; color: var(--text-dim);
+  }
+  /* A badge is a stamped metal tag: square-cut, filled, with a solid edge. */
   .badge {
     display: inline-flex; align-items: center; gap: 0.5em;
-    padding: 0.4em 0.9em; border-radius: 999px;
+    padding: 0.45em 0.9em;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: var(--radius-data);
     background: var(--warn); color: #fff;
+    font-weight: 600;
   }
   .badge--offline { background: var(--error); }
-  .dot { width: 0.8em; height: 0.8em; border-radius: 50%; background: currentColor; }
+  .dot { width: 0.7em; height: 0.7em; border-radius: 50%; background: currentColor; }
 
   /* ---- confirmation toasts ----
      These used to be a full-screen card, which meant one student at a time:
@@ -101,31 +123,51 @@
     display: flex; flex-direction: column; gap: 0.75rem;
     pointer-events: none;              /* the camera view stays tappable */
   }
+  /* The tone is carried by a fat left rail rather than by flooding the whole
+     card, so a stack of four is still readable over a live camera and the
+     student's name stays on an even ground whatever the outcome. */
   .toast {
     pointer-events: auto;              /* ...but a toast can be dismissed */
-    padding: 1rem 1.25rem;
-    border-radius: var(--radius);
-    background: var(--bg-raised);
+    padding: 0.9rem 1.15rem;
+    border-left: 0.5rem solid var(--text-dim);
+    border-radius: 0 var(--radius-data) var(--radius-data) 0;
+    background: rgba(29, 35, 40, 0.94);
+    backdrop-filter: blur(6px);
     box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.55);
     animation: toast-in 140ms ease-out;
   }
   @keyframes toast-in {
-    from { opacity: 0; transform: translateY(-0.6rem); }
+    from { opacity: 0; transform: translateX(0.75rem); }
     to   { opacity: 1; transform: none; }
   }
-  .toast[data-tone="pending"] { background: #39414d; }   /* grey — still asking the server */
-  .toast[data-tone="in"]      { background: var(--in); }
-  .toast[data-tone="out"]     { background: var(--out); }
-  .toast[data-tone="warn"]    { background: var(--warn); }
-  .toast[data-tone="error"]   { background: var(--error); }
+  .toast[data-tone="pending"] { border-left-color: var(--border); }   /* still asking the server */
+  .toast[data-tone="in"]      { border-left-color: var(--in-bright); }
+  .toast[data-tone="out"]     { border-left-color: var(--out-bright); }
+  .toast[data-tone="warn"]    { border-left-color: var(--warn-bright); }
+  .toast[data-tone="error"]   { border-left-color: var(--error-bright); background: rgba(63, 26, 24, 0.94); }
 
-  .toast__kicker { margin: 0; font-size: var(--step-sm); font-weight: 700; opacity: 0.85; }
-  .toast__name {
-    margin: 0.1em 0 0; font-size: var(--step-lg); font-weight: 800;
-    line-height: 1.1; overflow-wrap: anywhere;
+  .toast__kicker {
+    margin: 0; font-size: var(--step-sm); font-weight: 600;
+    color: var(--text-dim);
   }
-  .toast__detail { margin: 0.25em 0 0; font-size: var(--step-md); font-weight: 700; }
-  .toast__note   { margin: 0.5em 0 0; font-size: var(--step-sm); font-weight: 600; opacity: 0.9; }
+  .toast[data-tone="in"]    .toast__kicker { color: var(--in-bright); }
+  .toast[data-tone="out"]   .toast__kicker { color: var(--out-bright); }
+  .toast[data-tone="warn"]  .toast__kicker { color: var(--warn-bright); }
+  .toast[data-tone="error"] .toast__kicker { color: var(--error-bright); }
+  /* The name is the whole point of the confirmation — a student two metres
+     back has to read it and walk on — so it takes the condensed display face
+     and every pixel the column has. */
+  .toast__name {
+    margin: 0.05em 0 0; font-family: var(--font-display);
+    font-size: var(--step-lg); font-weight: 700;
+    line-height: 1.05; overflow-wrap: anywhere;
+  }
+  .toast__detail {
+    margin: 0.15em 0 0; font-family: var(--font-display);
+    font-size: var(--step-md); font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .toast__note   { margin: 0.5em 0 0; font-size: var(--step-sm); font-weight: 400; color: var(--text-dim); }
 
   /* ---- sheets (enrollment, PIN, fatal error) ---- */
   .sheet {
@@ -134,16 +176,29 @@
     gap: 3vmin; padding: 6vmin;
     background: var(--bg);
   }
-  .sheet h1 { margin: 0; font-size: var(--step-lg); font-weight: 700; color: var(--text-dim); }
+  .sheet h1 {
+    margin: 0; font-size: var(--step-lg); font-weight: 600; color: var(--text-dim);
+    max-width: 22ch;
+  }
+  /* The scanned number, set as it appears on the card: wide, tracked, tabular. */
   .sheet__id {
-    margin: 0; font-size: var(--step-hero); font-weight: 800;
-    font-variant-numeric: tabular-nums; letter-spacing: 0.06em;
+    margin: 0; font-family: var(--font-display);
+    font-size: var(--step-hero); font-weight: 700;
+    font-variant-numeric: tabular-nums; letter-spacing: 0.1em;
+    color: var(--warn-bright);
   }
   .sheet__row { display: flex; gap: 2vmin; }
   .sheet__row > * { flex: 1; }
   .sheet__msg { margin: 0; font-size: var(--step-md); color: var(--text-dim); min-height: 1.4em; }
-  .sheet__hint { margin: -2vmin 0 0; font-size: var(--step-sm); color: var(--text-dim); }
+  .sheet__hint { margin: -2vmin 0 0; font-size: var(--step-sm); color: var(--text-dim); max-width: 60ch; line-height: 1.5; }
   .sheet__msg[data-tone="error"] { color: var(--error-bright); }
+
+  /* The fatal sheet is the one screen a coach has to notice from across the
+     room, so it wears the hazard rail. Nothing else on the tablet does. */
+  #fatal-sheet::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0;
+    height: 0.7rem; background: var(--hazard);
+  }
 
   [hidden] { display: none !important; }
 </style>

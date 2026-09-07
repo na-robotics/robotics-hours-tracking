@@ -3,53 +3,85 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#1d2328">
 <title>Lab Hours — Admin</title>
 <!-- Icons only: the service worker is registered by the tablet page, so a
      browser that only ever opens this page is never served a cached shell. -->
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Display + text faces. Cross-origin, so the service worker never caches
+     them; on a dead network the fallback stacks in styles.css take over and
+     the layout holds. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/styles.css">
 <style>
   /* The tablet page is sized to be read across a room. This one is a dense
      desktop report, so it steps the type back down and reuses only the tokens. */
   :root {
-    /* Validated with the dataviz palette checker against the #161b22 chart
-       surface: inside the dark-mode lightness band and over 3:1 contrast.
-       #58a6ff, the obvious pick from the shared tokens, fails the band. */
-    --chart-bar: #388bfd;
+    /* Validated against the #262d33 chart surface: inside the dark-mode
+       lightness band and over 3:1 contrast. --out-bright is the obvious pick
+       from the shared tokens but sits too light against the panel once bars
+       are 2.75rem wide and read as a solid field. */
+    --chart-bar: #4f9fd4;
   }
   /* styles.css pins html/body to 100% height for the tablet's fixed, unscrollable
      surface. This page is a long report, so hand scrolling back to the document
      instead of trapping it in an inner body scroller. */
   html, body { height: auto; min-height: 100%; }
-  body { font-size: 16px; }
-  .wrap { max-width: 78rem; margin: 0 auto; padding: 1.5rem 1.5rem 6rem; }
+  body { font-size: 15px; }
+  .wrap { max-width: 78rem; margin: 0 auto; padding: 1.75rem 1.5rem 6rem; }
 
-  /* ---- chrome ---- */
+  /* ---- chrome ----
+     The topbar is the machine's faceplate: a darker band than the report
+     under it, with a hairline seam and no shadow. */
   .topbar {
     position: sticky; top: 0; z-index: 5;
     display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-    padding: 1rem 1.5rem;
-    background: rgba(13, 17, 23, 0.92);
-    backdrop-filter: blur(8px);
+    padding: 0.75rem 1.5rem;
+    background: rgba(23, 28, 32, 0.93);
+    backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border);
   }
-  .topbar__title { margin: 0; font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; }
+  .topbar__title {
+    margin: 0; font-family: var(--font-display);
+    font-size: 1.4rem; font-weight: 700; letter-spacing: 0.01em;
+    padding-right: 0.75rem; border-right: 1px solid var(--border);
+  }
   .topbar__spacer { flex: 1; }
 
-  .tabs { display: flex; gap: 0.25rem; }
+  /* Tabs are cut into the faceplate: the selected one is lit from beneath by
+     a signal underline rather than by a filled pill, which keeps five of them
+     from reading as five buttons. */
+  .tabs { display: flex; gap: 0.15rem; }
   .tab {
-    min-height: 2.75rem; padding: 0 1rem;
-    border: 1px solid transparent; border-radius: 0.5rem;
+    position: relative;
+    min-height: 2.5rem; padding: 0 0.85rem;
+    border: 0; border-radius: 0;
     background: transparent; color: var(--text-dim);
-    font: inherit; font-weight: 600; cursor: pointer;
+    font-family: var(--font-display); font-size: 1.0625rem; font-weight: 600;
+    letter-spacing: 0.01em; cursor: pointer;
   }
-  .tab[aria-selected="true"] { background: var(--bg-raised); border-color: var(--border); color: var(--text); }
+  .tab:hover { color: var(--text); }
+  .tab::after {
+    content: ""; position: absolute; left: 0.4rem; right: 0.4rem; bottom: -0.78rem;
+    height: 2px; background: transparent;
+  }
+  .tab[aria-selected="true"] { color: var(--text); }
+  .tab[aria-selected="true"]::after { background: var(--out-bright); }
+  .tab:focus-visible { outline: 2px solid var(--warn-bright); outline-offset: -2px; }
 
+  /* The shared .btn is sized for a finger on a wall tablet. This page is
+     driven with a mouse, so every control steps down to a desktop scale and
+     square-cut corners; .btn-sm is the row-level variant inside tables. */
+  .btn {
+    min-height: 2.5rem; padding: 0 1rem;
+    font-size: 1.0625rem; border-radius: var(--radius-data);
+  }
   .btn-sm {
-    min-height: 2.5rem; padding: 0 0.9rem;
-    font-size: 0.9375rem; border-radius: 0.5rem;
+    min-height: 2.25rem; padding: 0 0.85rem;
+    font-size: 0.9375rem;
   }
 
   /* ---- controls row ---- */
@@ -57,35 +89,41 @@
     display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap;
     margin: 1.5rem 0 1rem;
   }
-  .control { display: flex; flex-direction: column; gap: 0.35rem; }
-  .control__label { font-size: 0.8125rem; font-weight: 600; color: var(--text-dim); }
+  .control { display: flex; flex-direction: column; gap: 0.3rem; }
+  .control__label { font-size: 0.8125rem; font-weight: 500; color: var(--text-dim); }
   .input {
-    min-height: 2.75rem; padding: 0 0.75rem;
-    border: 1px solid var(--border); border-radius: 0.5rem;
-    background: var(--bg-raised); color: var(--text);
+    min-height: 2.5rem; padding: 0 0.7rem;
+    border: 1px solid var(--border); border-radius: var(--radius-data);
+    background: var(--bg-sunken); color: var(--text);
     font: inherit;
   }
-  .input:focus { outline: 2px solid var(--out-bright); outline-offset: -1px; border-color: transparent; }
+  .input:focus { outline: none; border-color: var(--out-bright); box-shadow: inset 0 0 0 1px var(--out-bright); }
   .input--search { min-width: 18rem; }
   .presets { display: flex; gap: 0.25rem; }
 
-  /* ---- tables ---- */
-  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.75rem; }
+  /* ---- tables ----
+     A timesheet is read down a column, so the rules run horizontally only and
+     the header is a fixed rail rather than a card. */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.4rem; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: 0.75rem 1rem; text-align: left; white-space: nowrap; }
+  th, td { padding: 0.6rem 1rem; text-align: left; white-space: nowrap; }
   thead th {
     position: sticky; top: 0;
-    background: var(--bg-raised);
-    font-size: 0.8125rem; font-weight: 600; color: var(--text-dim);
+    background: var(--bg-sunken);
+    font-family: var(--font-display); font-size: 0.9375rem; font-weight: 600;
+    letter-spacing: 0.02em; color: var(--text-dim);
     border-bottom: 1px solid var(--border);
   }
   thead th.sortable { cursor: pointer; user-select: none; }
   thead th.sortable:hover { color: var(--text); }
   th.num, td.num { text-align: right; }
-  tbody tr { border-top: 1px solid var(--border); }
-  tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+  tbody tr { border-top: 1px solid rgba(58, 68, 76, 0.55); }
+  tbody tr:hover { background: rgba(98, 182, 232, 0.06); }
   tbody tr.clickable { cursor: pointer; }
-  tfoot td { border-top: 2px solid var(--border); font-weight: 700; background: var(--bg-raised); }
+  tfoot td {
+    border-top: 1px solid var(--border); background: var(--bg-sunken);
+    font-family: var(--font-display); font-size: 1.05rem; font-weight: 700;
+  }
   .name-cell { font-weight: 600; }
   .muted { color: var(--text-dim); }
   /* Rename and Archive sit side by side; keep them on one line per row.
@@ -98,36 +136,47 @@
   /* ---- status pills. Colour never carries meaning alone: each pill has a word. ---- */
   .pill {
     display: inline-flex; align-items: center; gap: 0.4em;
-    padding: 0.2em 0.6em; border-radius: 999px;
+    padding: 0.15em 0.55em;
+    border: 1px solid currentColor; border-radius: var(--radius-data);
     font-size: 0.8125rem; font-weight: 600; white-space: nowrap;
   }
-  .pill--in     { background: rgba(63, 185, 80, 0.16);  color: var(--in-bright); }
-  .pill--review { background: rgba(210, 153, 34, 0.16); color: var(--warn-bright); }
-  .pill--error  { background: rgba(248, 81, 73, 0.16);  color: var(--error-bright); }
-  .pill--quiet  { background: var(--bg-raised); color: var(--text-dim); }
+  .pill--in     { background: rgba(78, 208, 138, 0.1); color: var(--in-bright); }
+  .pill--review { background: rgba(232, 163, 43, 0.1); color: var(--warn-bright); }
+  .pill--error  { background: rgba(242, 112, 94, 0.1); color: var(--error-bright); }
+  .pill--quiet  { background: transparent; color: var(--text-dim); border-color: var(--border); }
 
   .live-dot {
-    width: 0.55em; height: 0.55em; border-radius: 50%;
+    width: 0.5em; height: 0.5em; border-radius: 50%;
     background: var(--in-bright);
     animation: pulse 2s ease-in-out infinite;
   }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-  /* ---- stat tiles ---- */
+  /* ---- stat tiles ----
+     Not cards: figures ruled off from each other by a single seam, so a row
+     of them reads as one instrument panel instead of four boxes. */
   .tiles {
-    display: grid; gap: 0.75rem;
+    display: grid; gap: 0;
     grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
     margin: 1.25rem 0;
+    border: 1px solid var(--border); border-radius: 0.4rem;
+    background: var(--bg-raised);
+    overflow: hidden;
   }
-  .tile { padding: 1rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg-raised); }
-  .tile__label { font-size: 0.8125rem; font-weight: 600; color: var(--text-dim); }
-  .tile__value { margin-top: 0.35rem; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
-  .tile__value small { font-size: 0.9rem; font-weight: 600; color: var(--text-dim); }
+  .tile { padding: 0.9rem 1.1rem; border-left: 1px solid var(--border); }
+  .tile:first-child { border-left: 0; }
+  .tile__label { font-size: 0.8125rem; font-weight: 500; color: var(--text-dim); }
+  .tile__value {
+    margin-top: 0.15rem; font-family: var(--font-display);
+    font-size: 2.25rem; font-weight: 700; line-height: 1.05;
+    letter-spacing: 0.005em; font-variant-numeric: tabular-nums;
+  }
+  .tile__value small { font-size: 0.95rem; font-weight: 600; color: var(--text-dim); }
 
   /* ---- bar chart: one series, so no legend; the heading names it ---- */
-  .chart-card { padding: 1.25rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg-raised); }
-  .chart-card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-  .chart-card p.muted { margin: 0 0 1rem; font-size: 0.875rem; }
+  .chart-card { padding: 1.25rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--bg-raised); }
+  .chart-card h3 { margin: 0 0 0.15rem; font-size: 1.2rem; font-weight: 600; }
+  .chart-card p.muted { margin: 0 0 1.25rem; font-size: 0.875rem; }
   .chart { position: relative; }
   .chart__plot {
     position: relative;
@@ -137,7 +186,7 @@
     border-bottom: 1px solid var(--border);
   }
   .chart__grid { position: absolute; inset: 0 0 0 3rem; pointer-events: none; }
-  .chart__gridline { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border); opacity: 0.55; }
+  .chart__gridline { position: absolute; left: 0; right: 0; border-top: 1px solid var(--border); opacity: 0.4; }
   .chart__gridlabel {
     position: absolute; right: calc(100% + 0.5rem); transform: translateY(-50%);
     font-size: 0.75rem; color: var(--text-dim); font-variant-numeric: tabular-nums;
@@ -151,14 +200,15 @@
        against each other and a run of them reads as one solid block. */
     width: 100%; max-width: 2.75rem;
     background: var(--chart-bar);
-    border-radius: 4px 4px 0 0;      /* rounded data-end, anchored to the baseline */
+    border-radius: 2px 2px 0 0;      /* squared data-end, anchored to the baseline */
     transition: filter 120ms;
   }
   .chart__col:hover .chart__bar { filter: brightness(1.25); }
   .chart__bar--empty { background: var(--border); min-height: 2px; border-radius: 0; }
   .chart__peak {
     position: absolute; bottom: calc(var(--h) + 6px); left: 50%; transform: translateX(-50%);
-    font-size: 0.75rem; font-weight: 700; white-space: nowrap; color: var(--text);
+    font-family: var(--font-display); font-size: 0.85rem; font-weight: 700;
+    white-space: nowrap; color: var(--text);
   }
   .chart__axis { display: flex; gap: 2px; padding-left: 3rem; margin-top: 0.4rem; }
   .chart__tick {
@@ -167,51 +217,53 @@
   }
   .chart__tip {
     position: absolute; z-index: 3; pointer-events: none;
-    padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: 0.5rem;
-    background: var(--bg); font-size: 0.8125rem; line-height: 1.4;
+    padding: 0.5rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius-data);
+    background: var(--bg-sunken); font-size: 0.8125rem; line-height: 1.4;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); white-space: nowrap;
   }
-  .chart__tip strong { display: block; }
+  .chart__tip strong { display: block; font-family: var(--font-display); font-size: 1rem; }
 
   /* ---- session list ---- */
   .session {
     display: grid; align-items: center; gap: 0.75rem;
     grid-template-columns: 8.5rem 1fr auto auto;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--border);
+    padding: 0.65rem 1rem;
+    border-top: 1px solid rgba(58, 68, 76, 0.55);
   }
   .session:first-child { border-top: 0; }
-  .session--problem { background: rgba(210, 153, 34, 0.07); }
-  .session__date { font-weight: 600; }
+  /* A session that needs a human wears the caution rail, and nothing else does. */
+  .session--problem { box-shadow: inset 0.25rem 0 0 var(--warn-bright); background: rgba(232, 163, 43, 0.05); }
+  .session__date { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; }
   .session__times { color: var(--text-dim); font-variant-numeric: tabular-nums; }
-  .session__dur { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .session__dur { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .session__actions { display: flex; gap: 0.4rem; }
   .session__editor {
     grid-column: 1 / -1;
     display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end;
     padding: 0.9rem; margin-top: 0.5rem;
-    border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius-data); background: var(--bg-sunken);
   }
   .confirm__actions { margin-left: auto; display: flex; gap: 0.5rem; flex-shrink: 0; }
   .confirm {
     grid-column: 1 / -1;
     display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
     padding: 0.75rem 0.9rem; margin-top: 0.5rem;
-    border: 1px solid var(--error); border-radius: 0.5rem;
-    background: rgba(164, 35, 47, 0.12);
+    border: 1px solid var(--error); border-left: 0.3rem solid var(--error-bright);
+    border-radius: 0 var(--radius-data) var(--radius-data) 0;
+    background: rgba(155, 44, 34, 0.14);
   }
-  .btn-danger { background: var(--error); border-color: var(--error-bright); }
+  .btn-danger { background: var(--error); border-color: var(--error-bright); color: #fdeeeb; }
 
   /* ---- flagged review queue ---- */
   .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .chip {
-    min-height: 2.5rem; padding: 0 0.9rem;
-    border: 1px solid var(--border); border-radius: 999px;
+    min-height: 2.25rem; padding: 0 0.85rem;
+    border: 1px solid var(--border); border-radius: var(--radius-data);
     background: transparent; color: var(--text-dim);
-    font: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    font-family: var(--font-display); font-size: 1rem; font-weight: 600; cursor: pointer;
   }
   .chip[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); border-color: var(--out-bright); }
-  .chip__n { opacity: 0.7; margin-left: 0.35em; font-variant-numeric: tabular-nums; }
+  .chip__n { opacity: 0.65; margin-left: 0.4em; font-variant-numeric: tabular-nums; }
   .who-link {
     display: block; margin-top: 0.15rem; padding: 0;
     background: none; border: 0; color: var(--out-bright);
@@ -219,25 +271,29 @@
   }
   .who-link:hover { text-decoration: underline; }
   .tab__count {
-    display: inline-block; min-width: 1.4em; margin-left: 0.4em; padding: 0.05em 0.4em;
-    border-radius: 999px; background: var(--warn); color: #fff;
-    font-size: 0.75rem; font-variant-numeric: tabular-nums;
+    display: inline-block; min-width: 1.4em; margin-left: 0.35em; padding: 0.05em 0.35em;
+    border-radius: var(--radius-data); background: var(--warn); color: #fff;
+    font-family: var(--font); font-size: 0.75rem; font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* ---- summaries ---- */
+  /* ---- summaries ----
+     A student's own writing, so it is the one place on this page set for
+     reading: a measured line length, looser leading, and a blue rail marking
+     it as quoted rather than computed. */
   .summary {
-    padding: 1rem;
+    padding: 1rem 1.25rem;
     border-top: 1px solid var(--border);
-    border-left: 3px solid var(--out-bright);
-    background: rgba(88, 166, 255, 0.05);
+    border-left: 0.3rem solid var(--out-bright);
+    background: rgba(98, 182, 232, 0.045);
   }
   .summary__head { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.5rem; }
-  .summary__label { font-weight: 700; color: var(--out-bright); font-size: 0.875rem; letter-spacing: 0.02em; }
-  .summary__text { margin: 0; white-space: pre-wrap; line-height: 1.55; overflow-wrap: anywhere; }
-  .summary__photos { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+  .summary__label { font-family: var(--font-display); font-weight: 600; color: var(--out-bright); font-size: 1rem; }
+  .summary__text { margin: 0; max-width: 68ch; white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+  .summary__photos { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.85rem; }
   .summary__photo {
-    display: block; width: 7rem; height: 7rem; border-radius: 0.5rem; overflow: hidden;
-    border: 1px solid var(--border); background: var(--bg);
+    display: block; width: 7rem; height: 7rem; border-radius: var(--radius-data); overflow: hidden;
+    border: 1px solid var(--border); background: var(--bg-sunken);
   }
   .summary__photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .summary__photo--broken {
@@ -246,12 +302,13 @@
   }
 
   /* ---- misc ---- */
-  .card { border: 1px solid var(--border); border-radius: 0.75rem; background: var(--bg-raised); }
+  .card { border: 1px solid var(--border); border-radius: 0.4rem; background: var(--bg-raised); }
   .banner {
     display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
-    padding: 0.9rem 1.1rem; margin-bottom: 1rem;
-    border: 1px solid var(--error); border-radius: 0.5rem;
-    background: rgba(164, 35, 47, 0.12);
+    padding: 0.85rem 1.1rem; margin-bottom: 1rem;
+    border: 1px solid var(--error); border-left: 0.3rem solid var(--error-bright);
+    border-radius: 0 var(--radius-data) var(--radius-data) 0;
+    background: rgba(155, 44, 34, 0.14);
   }
   /* ---- optimistic-write chrome ----
      Both of these are deliberately quiet. The point of optimistic updates is
@@ -262,7 +319,7 @@
     font-size: 0.8125rem; color: var(--text-dim);
   }
   .saving__dot {
-    width: 0.5rem; height: 0.5rem; border-radius: 50%;
+    width: 0.45rem; height: 0.45rem; border-radius: 50%;
     background: var(--text-dim); animation: saving-pulse 1s ease-in-out infinite;
   }
   @keyframes saving-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
@@ -282,34 +339,44 @@
     pointer-events: auto;
     display: flex; align-items: flex-start; gap: 0.75rem;
     padding: 0.8rem 1rem;
-    border: 1px solid var(--error); border-radius: 0.5rem;
+    border: 1px solid var(--border); border-left: 0.3rem solid var(--error-bright);
+    border-radius: 0 var(--radius-data) var(--radius-data) 0;
     background: var(--bg-raised);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     font-size: 0.9rem;
   }
-  .toast__msg { flex: 1; }
+  .toast__msg { flex: 1; line-height: 1.5; }
   .toast__close {
     background: none; border: 0; color: var(--text-dim);
     font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 0.2rem;
   }
 
-  .empty { padding: 3rem 1rem; text-align: center; color: var(--text-dim); }
+  /* An empty view is an invitation, so it gets room rather than a shrug. */
+  .empty { padding: 3.5rem 1rem; text-align: center; color: var(--text-dim); }
+
+  /* The gate is the only full-screen moment this page has: the panel is
+     centred on the ground with the app's name set at display size above it. */
   .gate { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
-  .gate__card { width: min(26rem, 100%); display: flex; flex-direction: column; gap: 1rem; padding: 2rem; }
-  .gate h1 { margin: 0; font-size: 1.35rem; }
+  .gate__card {
+    width: min(24rem, 100%);
+    display: flex; flex-direction: column; gap: 0.9rem;
+    padding: 2.25rem 2rem 2rem;
+    overflow: hidden;
+  }
+  .gate h1 { margin: 0; font-size: 2rem; font-weight: 700; line-height: 1; }
   .back {
     display: inline-flex; align-items: center; gap: 0.4rem;
     background: none; border: 0; padding: 0.5rem 0;
     color: var(--out-bright); font: inherit; font-weight: 600; cursor: pointer;
   }
   .detail-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-  .detail-head h2 { margin: 0; font-size: 1.5rem; }
+  .detail-head h2 { margin: 0; font-size: 2rem; font-weight: 700; line-height: 1.05; }
   .row-gap { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   .add-form { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; padding: 1rem; margin-bottom: 1rem; }
   .email-cell { max-width: 15rem; }
 
   /* Teams ---------------------------------------------------------------- */
-  .pill--team { background: rgba(88, 166, 255, 0.16); color: var(--out-bright); }
+  .pill--team { background: rgba(98, 182, 232, 0.1); color: var(--out-bright); }
   .team-cell { white-space: nowrap; }
 
   /* The hours bar in the team table: a ranking read across rows, so it is
@@ -319,18 +386,19 @@
   .teambar {
     position: relative;
     display: flex; align-items: center;
-    min-width: 9rem; height: 1.75rem;
+    min-width: 9rem; height: 1.65rem;
     padding: 0 0.5rem;
-    border-radius: 0.35rem;
-    background: rgba(255, 255, 255, 0.04);
+    border-radius: 2px;
+    background: var(--bg-sunken);
     overflow: hidden;
   }
   .teambar__fill {
     position: absolute; inset: 0 auto 0 0;
-    background: var(--out); opacity: 0.55;
+    background: var(--out); opacity: 0.7;
   }
   .teambar__value {
     position: relative;
+    font-family: var(--font-display); font-size: 1.05rem;
     font-weight: 700; font-variant-numeric: tabular-nums;
   }
 
@@ -346,19 +414,20 @@
   .picker {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-    gap: 0.25rem;
+    gap: 0.15rem;
     max-height: 20rem; overflow-y: auto;
     padding: 0.5rem;
-    border: 1px solid var(--border); border-radius: 0.5rem;
+    border: 1px solid var(--border); border-radius: var(--radius-data);
+    background: var(--bg-sunken);
   }
   .picker__item {
     display: flex; align-items: center; gap: 0.5rem;
     padding: 0.35rem 0.5rem;
-    border-radius: 0.35rem;
+    border-radius: 2px;
     cursor: pointer;
   }
-  .picker__item:hover { background: rgba(255, 255, 255, 0.04); }
-  .picker__item--on { background: rgba(88, 166, 255, 0.12); }
+  .picker__item:hover { background: rgba(255, 255, 255, 0.045); }
+  .picker__item--on { background: rgba(98, 182, 232, 0.14); }
   .picker__team { margin-left: auto; font-size: 0.8125rem; }
   .email-cell__value {
     display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -368,22 +437,30 @@
   .reject-group { margin-bottom: 1rem; }
   .reject-group__head {
     display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-    padding: 0.7rem 1rem; border-bottom: 1px solid var(--border);
+    padding: 0.65rem 1rem; border-bottom: 1px solid var(--border);
+    background: var(--bg-sunken);
   }
-  .reject-group__name { font-weight: 600; }
+  .reject-group__name { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; }
   .reject-row {
-    display: grid; gap: 0.75rem; align-items: center; padding: 0.7rem 1rem;
+    display: grid; gap: 0.75rem; align-items: center; padding: 0.65rem 1rem;
     grid-template-columns: auto 9rem 5rem 1fr auto;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(58, 68, 76, 0.55);
   }
   .reject-row:last-child { border-bottom: 0; }
   .reject-row__reason { font-size: 0.875rem; color: var(--text-dim); }
+  /* The bulk bar acts on hours that are currently not counting, so it carries
+     the caution stripe — the second and last place on the page that does. */
   .bulkbar {
     position: sticky; top: 0; z-index: 5;
     display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
-    padding: 0.7rem 1rem; margin-bottom: 1rem;
-    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 0.85rem 1rem 0.65rem; margin-bottom: 1rem;
+    border: 1px solid var(--border); border-radius: var(--radius-data);
     background: var(--bg-raised);
+    overflow: hidden;
+  }
+  .bulkbar::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0;
+    height: 0.3rem; background: var(--hazard);
   }
   @media (max-width: 720px) {
     .reject-row { grid-template-columns: auto 1fr auto; }
@@ -393,13 +470,13 @@
 </style>
 </head>
 
-<body data-palette="#388bfd">
+<body data-palette="#4f9fd4">
 
 <!-- PIN gate ------------------------------------------------------------- -->
 <div class="gate" id="gate">
   <div class="card gate__card">
     <h1>Lab Hours</h1>
-    <p class="muted" style="margin:0">Enter the admin PIN. It is checked against the Config tab of the sheet.</p>
+    <p class="muted" style="margin:0">Coaches only. If you have lost the PIN, it is in the Config tab of the sheet.</p>
     <label class="visually-hidden" for="pin">Admin PIN</label>
     <input class="input" id="pin" type="password" inputmode="numeric" placeholder="PIN"
            autocomplete="off" enterkeyhint="go">

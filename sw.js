@@ -43,7 +43,7 @@
 // nothing and index.html now passes one, and submitSummary() takes an
 // identifier object instead of a bare student id. A cached v5 api.js paired
 // with a new summary.html would post `[object Object]` as a student id.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = 'lab-shell-' + VERSION;
 
 /** Everything needed to boot the scanner with no network at all. */
