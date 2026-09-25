@@ -89,6 +89,8 @@ var SOURCE_MANUAL    = 'manual';    // a coach typed the whole session in by han
  *   rejected   the session it belongs to went past the grace period with no
  *              summary, so it stops counting
  *   recovered  a late summary arrived and put it back
+ *   verified   a coach checked a flagged session's times and signed it off,
+ *              which takes it out of the Needs review queue
  *
  * This is the only mutable cell in Events, and it is deliberately not part of
  * the append-only rule: student_id, timestamp, direction and source are the
@@ -100,6 +102,7 @@ var SOURCE_MANUAL    = 'manual';    // a coach typed the whole session in by han
 var STATUS_ACTIVE    = 'active';
 var STATUS_REJECTED  = 'rejected';
 var STATUS_RECOVERED = 'recovered';
+var STATUS_VERIFIED  = 'verified';
 
 // Column index (1-based) of Events.status. Column order is the contract.
 var COL_EVENT_STATUS = 8;
@@ -249,6 +252,7 @@ function doPost(e) {
       case 'setEmail':      return json_(actionSetEmail_(payload));
       case 'addManualSession': return json_(actionAddManualSession_(payload));
       case 'recoverEvents': return json_(actionRecoverEvents_(payload));
+      case 'verifySessions': return json_(actionVerifySessions_(payload));
       case 'getTeams':      return json_(actionGetTeams_(payload));
       case 'createTeam':    return json_(actionCreateTeam_(payload));
       case 'renameTeam':    return json_(actionRenameTeam_(payload));
@@ -734,6 +738,7 @@ function normStatus_(v) {
   var s = String(v === null || v === undefined ? '' : v).trim().toLowerCase();
   if (s === STATUS_REJECTED) return STATUS_REJECTED;
   if (s === STATUS_RECOVERED) return STATUS_RECOVERED;
+  if (s === STATUS_VERIFIED) return STATUS_VERIFIED;
   return STATUS_ACTIVE;
 }
 
@@ -883,9 +888,10 @@ function makeSession_(inEv, outEv, status) {
     flagged: !!(inEv.flagged || (outEv && outEv.flagged)),
     needs_review: status !== 'closed' && status !== 'open',
     sources: outEv ? [inEv.source, outEv.source] : [inEv.source],
-    // 'rejected' if either end is rejected, 'recovered' if either was restored.
-    // Rejection and recovery always move both ends together, so a mixed pair
-    // means somebody edited the sheet by hand; the stricter label wins.
+    // 'rejected' if either end is rejected, 'recovered' if either was restored,
+    // 'verified' only if both ends were. Every status change moves both ends
+    // together, so a mixed pair means somebody edited the sheet by hand; the
+    // stricter label wins.
     event_status: mergeStatus_(inEv.status, outEv ? outEv.status : null)
   };
 }
@@ -894,6 +900,7 @@ function mergeStatus_(a, b) {
   var x = normStatus_(a), y = b == null ? x : normStatus_(b);
   if (x === STATUS_REJECTED || y === STATUS_REJECTED) return STATUS_REJECTED;
   if (x === STATUS_RECOVERED || y === STATUS_RECOVERED) return STATUS_RECOVERED;
+  if (x === STATUS_VERIFIED && y === STATUS_VERIFIED) return STATUS_VERIFIED;
   return STATUS_ACTIVE;
 }
 
@@ -2600,6 +2607,91 @@ function actionRecoverEvents_(p) {
   });
 }
 
+/**
+ * Sign off flagged sessions: a coach has checked the times, so they leave the
+ * Needs review queue. Their hours already counted; this changes what the page
+ * asks a human to look at, not any total.
+ *
+ * Takes event ids like recoverEvents, and verifies every session that one of
+ * them belongs to — both ends, so a pair never ends up half verified. Only a
+ * clean, completed session can be verified, and only once it is written up:
+ * a summary on file for that day, a coach-entered session, or one a coach
+ * already recovered. Verifying anything earlier would exempt it from the
+ * nightly rejection (which only judges active sessions) and so let unlogged
+ * time become official. Those come back in `skipped` with a reason, not as an
+ * error, so a bulk "Verify all" still verifies everything it can.
+ *
+ * A later correction appends a fresh, unverified event, so an edited session
+ * drops back into the queue on its own.
+ */
+function actionVerifySessions_(p) {
+  requirePin_(p);
+  var ids = p.event_ids || p.eventIds;
+  if (!(ids instanceof Array) || !ids.length) fail_('verifySessions needs a non-empty event_ids array');
+  if (ids.length > 1000) fail_('too many events in one request (max 1000)');
+
+  return withLock_(function () {
+    var raw = readTable_(TAB_EVENTS);
+    var rowOf = rawRowIndex_(raw);
+    var wanted = {};
+    var ownerOf = {};
+    for (var r = 0; r < raw.length; r++) {
+      var rid = String(raw[r].event_id || '').trim();
+      if (rid) ownerOf[rid] = normId_(raw[r].student_id);
+    }
+    var byStudent = {};
+    for (var i = 0; i < ids.length; i++) {
+      var id = String(ids[i] || '').trim();
+      if (!id) continue;
+      wanted[id] = true;
+      if (ownerOf[id]) byStudent[ownerOf[id]] = true;
+    }
+
+    var logged = {};
+    var summaryRows = resolveSummaries_(readTable_(TAB_SUMMARIES));
+    for (var k = 0; k < summaryRows.length; k++) {
+      var sidS = normId_(summaryRows[k].student_id);
+      if (sidS && byStudent[sidS]) logged[sidS + '|' + summaryDate_(summaryRows[k])] = true;
+    }
+
+    var live = groupByStudent_(resolveEvents_(raw));
+    var updates = [];
+    var verified = 0;
+    var skipped = [];
+    for (var sid in byStudent) {
+      if (!byStudent.hasOwnProperty(sid)) continue;
+      var sessions = buildSessions_(live[sid] || []);
+      for (var j = 0; j < sessions.length; j++) {
+        var sess = sessions[j];
+        if (!wanted[sess.in_event_id] && !wanted[sess.out_event_id]) continue;
+        var reason = null;
+        if (sess.status === 'open') reason = 'still checked in';
+        else if (sess.status !== 'closed') reason = 'broken session: fix the times first';
+        else if (sess.event_status !== STATUS_VERIFIED &&
+                 sess.event_status !== STATUS_RECOVERED &&
+                 (sess.sources || []).indexOf(SOURCE_MANUAL) < 0 &&
+                 !logged[sid + '|' + sess.date]) reason = 'no summary yet';
+        if (reason) {
+          skipped.push({ student_id: sid, date: sess.date, in_event_id: sess.in_event_id,
+                         out_event_id: sess.out_event_id, reason: reason });
+          continue;
+        }
+        updates.push({ _row: rowOf[sess.in_event_id],  status: STATUS_VERIFIED });
+        updates.push({ _row: rowOf[sess.out_event_id], status: STATUS_VERIFIED });
+        verified++;
+      }
+    }
+    setEventStatuses_(updates);
+
+    var fresh = readTable_(TAB_EVENTS);
+    var sessionsByStudent = {};
+    for (var s2 in byStudent) {
+      if (byStudent.hasOwnProperty(s2)) sessionsByStudent[s2] = studentSessionsAfter_(fresh, [], s2);
+    }
+    return ok_({ verified: verified, skipped: skipped, sessions_by_student: sessionsByStudent });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Setup — run these by hand from the Apps Script editor
 // ---------------------------------------------------------------------------
@@ -3033,7 +3125,9 @@ function rejectUnloggedSessions(opts) {
       for (var j = 0; j < sessions.length; j++) {
         var sess = sessions[j];
         if (sess.status !== 'closed') continue;
-        if (sess.event_status !== STATUS_ACTIVE) continue;        // already judged
+        // Recovered and verified sessions are already judged; verifySessions only
+        // signs off a session that is written up, so neither needs checking again.
+        if (sess.event_status !== STATUS_ACTIVE) continue;
         if ((sess.sources || []).indexOf(SOURCE_MANUAL) >= 0) continue;
         if (skip[sess.out_event_id] || skip[sess.in_event_id]) continue;
         if (new Date(sess.out_time).getTime() > cutoff) continue; // still in grace

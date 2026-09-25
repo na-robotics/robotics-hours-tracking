@@ -782,11 +782,24 @@ function driveId(url) {
 function flaggedSessions() {
   const term = state.search.trim().toLowerCase();
   return state.sessions
-    .filter((s) => s.flagged || s.needs_review)
+    .filter(wantsReview)
     .filter((s) => flagCategories(s).includes(state.flagFilter) || state.flagFilter === 'all')
     .filter((s) => matchesTeamId(s.student_id))
     .filter((s) => !term || String(s.name || '').toLowerCase().includes(term) || s.student_id.includes(term))
     .sort((a, b) => String(b.in_time || b.out_time).localeCompare(String(a.in_time || a.out_time)));
+}
+
+/**
+ * Whether a session belongs in Needs review. A broken session always does; a
+ * flagged one does until a coach verifies it.
+ */
+function wantsReview(s) {
+  return s.needs_review || (s.flagged && s.event_status !== 'verified');
+}
+
+/** Can the Verify button apply? The server has the final say (it also wants a summary). */
+function canVerify(s) {
+  return s.flagged && s.status === 'closed' && s.event_status !== 'verified';
 }
 
 /** Why a session is in the queue. A session can be in more than one bucket. */
@@ -804,7 +817,7 @@ function flagCategories(s) {
 function flagCounts() {
   const counts = { all: 0, review: 0, auto: 0, offline: 0, admin: 0, manual: 0 };
   for (const s of state.sessions) {
-    if (!s.flagged && !s.needs_review) continue;
+    if (!wantsReview(s)) continue;
     counts.all++;
     for (const c of flagCategories(s)) counts[c]++;
   }
@@ -1737,6 +1750,8 @@ function flaggedHtml() {
 
     <p class="muted" style="margin:0 0 0.75rem">
       ${rows.length} session${rows.length === 1 ? '' : 's'} shown · ${esc(teamLabel())} · all dates
+      ${rows.some(canVerify) ? `<button class="btn btn--ghost btn-sm" style="margin-left:0.5rem"
+          data-action="verify-shown">Verify all shown</button>` : ''}
     </p>
 
     <div class="card">
@@ -1929,6 +1944,46 @@ function recoverSessions(sessions) {
   );
 }
 
+/**
+ * Sign off flagged sessions, optimistically like recovery. The server skips
+ * any that are not written up yet (and says why), and its rebuilt timelines
+ * put those straight back in the queue.
+ */
+function verifySessions(sessions) {
+  sessions = sessions.filter(canVerify);
+  if (!sessions.length) return;
+  const eventIds = [];
+  for (const session of sessions) eventIds.push(...sessionEventIds(session));
+  const keys = new Set(sessions.map(sessionKey));
+  const affected = [...new Set(sessions.map((x) => x.student_id))];
+
+  optimistic(
+    () => {
+      const undo = affected.map((studentId) => snapshotSessions(studentId));
+      for (const studentId of affected) {
+        setStudentSessions(studentId, (state.byStudent.get(studentId) || []).map((x) =>
+          keys.has(sessionKey(x)) ? { ...x, event_status: 'verified' } : x));
+      }
+      return () => { for (const u of undo) u(); };
+    },
+    () => api.admin.verifySessions(state.pin, eventIds, { timeoutMs: 60000 }),
+    (data) => {
+      const byStudent = (data && data.sessions_by_student) || {};
+      for (const studentId of Object.keys(byStudent)) setStudentSessions(studentId, byStudent[studentId]);
+      const skipped = (data && data.skipped) || [];
+      if (skipped.length) {
+        const waiting = skipped.filter((x) => x.reason === 'no summary yet').length;
+        toast(`${skipped.length} session${skipped.length === 1 ? '' : 's'} not verified` +
+          (waiting === skipped.length
+            ? ' — no summary yet. A session is verified once it is written up.'
+            : ' — ' + [...new Set(skipped.map((x) => x.reason))].join('; ')));
+      }
+    },
+    sessions.length === 1 ? 'Could not verify that session'
+                          : `Could not verify ${sessions.length} sessions`
+  );
+}
+
 function rejectedByKey(key) {
   return state.rejected.find((x) => sessionKey(x) === key) || null;
 }
@@ -2109,6 +2164,7 @@ function sessionRowHtml(s, opts = {}) {
   const offline = (s.sources || []).includes('offline');
   const manual = (s.sources || []).includes('manual');
   const recovered = s.event_status === 'recovered';
+  const verified = s.event_status === 'verified';
 
   let duration;
   if (s.status === 'closed') duration = fmtDur(s.minutes);
@@ -2124,8 +2180,9 @@ function sessionRowHtml(s, opts = {}) {
     // measured by a scan", and a coach reading the timeline needs to see which.
     manual ? '<span class="pill pill--review">✍️ Added by a coach</span>' : '',
     recovered ? '<span class="pill pill--in">↩ Recovered by a late summary</span>' : '',
-    !autoClosed && !offline && !manual && s.flagged
+    !autoClosed && !offline && !manual && s.flagged && !verified
       ? '<span class="pill pill--review">⚑ Unverified time</span>' : '',
+    verified ? '<span class="pill pill--in">✓ Verified by a coach</span>' : '',
   ].filter(Boolean).join(' ');
 
   return `
@@ -2143,6 +2200,8 @@ function sessionRowHtml(s, opts = {}) {
       </div>
       <div class="session__dur">${duration}</div>
       <div class="session__actions">
+        ${canVerify(s) ? `<button class="btn btn--ghost btn-sm" data-action="verify" data-key="${esc(key)}"
+            title="The times are right: take this out of Needs review">Verify</button>` : ''}
         <button class="btn btn--ghost btn-sm" data-action="edit" data-key="${esc(key)}">Edit</button>
         <button class="btn btn--ghost btn-sm" data-action="ask-delete" data-key="${esc(key)}">Delete</button>
       </div>
@@ -2963,6 +3022,12 @@ $('view').addEventListener('click', (event) => {
       recoverSessions(state.rejected.filter((x) => x.student_id === id));
       break;
     }
+    case 'verify': {
+      const session = findSession(key);
+      if (session) verifySessions([session]);
+      break;
+    }
+    case 'verify-shown': verifySessions(flaggedSessions()); break;
     case 'recover-selected':
       recoverSessions(state.rejected.filter((x) => state.selectedRejected.has(sessionKey(x))));
       break;

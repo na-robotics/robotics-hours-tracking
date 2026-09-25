@@ -305,6 +305,13 @@ export const admin = {
    */
   recoverEvents: (pin, eventIds, options = {}) =>
     request('recoverEvents', { pin, event_ids: eventIds }, options),
+  /**
+   * Sign off flagged sessions so they leave the Needs review queue. Takes event
+   * ids; the server verifies whole sessions, and only ones that are written up.
+   * Resolves to {verified, skipped: [{..., reason}], sessions_by_student}.
+   */
+  verifySessions: (pin, eventIds, options = {}) =>
+    request('verifySessions', { pin, event_ids: eventIds }, options),
 
   // --- teams ---------------------------------------------------------------
   // Teams are a coach-side grouping and nothing else in the app knows they

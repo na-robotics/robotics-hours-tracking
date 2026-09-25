@@ -74,7 +74,7 @@ or `last_seen` field anywhere — not in the Sheet, not in a cache.
 - Corrections are made by appending a new event with a `note`, never by editing a row.
 
 **The one exception is `Events.status`.** It is a review flag — `active`, `rejected`,
-`recovered` — not a fact about attendance, and it is written in place. `student_id`,
+`recovered`, `verified` — not a fact about attendance, and it is written in place. `student_id`,
 `timestamp`, `direction` and `source` stay immutable. Writing rejection as a superseding
 event instead would destroy the IN/OUT pairing (there is no half-event to supersede) and
 would make a nightly job that rejects forty sessions append eighty rows a night.
@@ -172,7 +172,7 @@ or insert columns in the middle.
 | `source` | Which client produced it (e.g. tablet scanner, offline queue, admin). |
 | `flagged` | `true` when the timestamp is unverified or the event needs review. |
 | `note` | Free text; used for corrections and admin annotations. |
-| `status` | `active` (blank counts as active), `rejected`, `recovered`. The only mutable cell in Events — see hard constraint 4. |
+| `status` | `active` (blank counts as active), `rejected`, `recovered`, `verified`. The only mutable cell in Events — see hard constraint 4. |
 
 **`Summaries`**
 
@@ -247,6 +247,18 @@ Two ways a session exists without a matching pair of card taps, and they are dif
 Manual sessions are **exempt from summary rejection**: a coach entering a session by hand
 is the verification a summary would have provided. Both rows are written `flagged`, and
 the admin UI marks them alongside auto-closed ones.
+
+## Verifying flagged sessions
+
+`flagged` records where a time came from and never changes. What takes a flagged session
+out of the Needs review queue is `verifySessions`, which sets `status = verified` on both
+ends. Its hours already counted; verifying changes no total.
+
+A session can be verified only when it is closed and **written up**: a summary on file for
+that day, `source: "manual"`, or already `recovered`. The nightly rejecter only judges
+`active` sessions, so verifying an unlogged one would exempt it from the summary rule.
+Anything else comes back in `skipped` with a reason. Editing a verified session appends a
+fresh, unverified event, so it drops back into the queue by itself.
 
 ## The nightly job
 
